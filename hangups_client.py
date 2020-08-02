@@ -124,8 +124,7 @@ def _get_parser():
     )
     return parser
 
-@asyncio.coroutine
-def _async_main(example_coroutine, client, args):
+async def _async_main(example_coroutine, client, args):
     """Run the example coroutine."""
     # Spawn a task for hangups to run in parallel with the example coroutine.
     task = asyncio.ensure_future(client.connect())
@@ -133,43 +132,41 @@ def _async_main(example_coroutine, client, args):
     # Wait for hangups to either finish connecting or raise an exception.
     on_connect = asyncio.Future()
     client.on_connect.add_observer(lambda: on_connect.set_result(None))
-    done, _ = yield from asyncio.wait(
+    done, _ = await asyncio.wait(
         (on_connect, task), return_when=asyncio.FIRST_COMPLETED
     )
-    yield from asyncio.gather(*done)
+    await asyncio.gather(*done)
 
     # Run the example coroutine. Afterwards, disconnect hangups gracefully and
     # yield the hangups task to handle any exceptions.
     try:
-        yield from example_coroutine(client, args)
+        await example_coroutine(client, args)
     finally:
-        yield from client.disconnect()
-        yield from task
+        await client.disconnect()
+        await task
 
 reader, writer = None, None
 
-@asyncio.coroutine
-def stdio(loop=None):
+async def stdio(loop=None):
     if loop is None:
         loop = asyncio.get_event_loop()
 
     reader = asyncio.StreamReader()
     reader_protocol = asyncio.StreamReaderProtocol(reader)
 
-    writer_transport, writer_protocol = yield from loop.connect_write_pipe(FlowControlMixin, os.fdopen(0, 'wb'))
+    writer_transport, writer_protocol = await loop.connect_write_pipe(FlowControlMixin, os.fdopen(0, 'wb'))
     writer = StreamWriter(writer_transport, writer_protocol, None, loop)
 
-    yield from loop.connect_read_pipe(lambda: reader_protocol, sys.stdin)
+    await loop.connect_read_pipe(lambda: reader_protocol, sys.stdin)
 
     return reader, writer
 
-@asyncio.coroutine
-def async_input():
+async def async_input():
     global reader, writer
     if (reader, writer) == (None, None):
-        reader, writer = yield from stdio()
+        reader, writer = await stdio()
 
-    line = yield from reader.readline()
+    line = await reader.readline()
     return line.decode('utf8').strip()
 
 global event_queue
@@ -227,13 +224,12 @@ async def download_image(url):
                 data = await resp.read()
                 return SimpleNamespace(name=url, read=lambda: data)
 
-@asyncio.coroutine
-def listen_events(client, _):
+async def listen_events(client, _):
     global user_list, conv_list
     global event_queue
 
     user_list, conv_list = (
-        yield from hangups.build_user_conversation_list(client)
+        await hangups.build_user_conversation_list(client)
     )
     #print("my user id");
     #print(user_list._self_user.id_);
@@ -247,7 +243,7 @@ def listen_events(client, _):
 
     while 1:
         try:
-            msgtxt = yield from async_input()
+            msgtxt = await async_input()
             msgtxt = msgtxt.strip()
 
             # TOOD: take conversation id from other side
@@ -262,7 +258,7 @@ def listen_events(client, _):
                 ).add_done_callback(_on_message_sent)
             elif msgJson['cmd'] == 'sendimage':
                 segments = []
-                image_file = yield from download_image(msgJson['url'])
+                image_file = await download_image(msgJson['url'])
                 # deduplicate
                 image_file.name += '_mx_' + MIME_EXT.get(msgJson['mimetype'], '.unk')
                 if not image_file:
